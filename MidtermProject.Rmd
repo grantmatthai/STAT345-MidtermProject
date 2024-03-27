@@ -1,0 +1,336 @@
+---
+title: "Midterm Project"
+author: "Grant Matthai- Junior Data Analyst"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, collapse = TRUE, out.width = "80%")
+```
+## Introduction
+
+- Today, I will be presenting my analysis on how the Houston Rockets' shot selection has transformed over the past two decades
+- I will be using R data visualization techniques to demonstrate the evolution of the Houston Rockets' shot selection
+
+```{r Load in packages, include=FALSE}
+library(devtools)
+library(nbastatR)
+library(tidyverse)  # includes dplyr, ggplot2
+library(png)
+library(jpeg)
+library(hexbin)
+library(grid)
+library(zoo)
+library(gridExtra)
+```
+
+```{r Retrieve and combine shot data for Houston Rockets, eval=FALSE, include=FALSE}
+# Increase size of the connection buffer to 20 MB
+Sys.setenv("VROOM_CONNECTION_SIZE" = 20 * 1024^2)
+
+# create sequence of season years
+seasons <- 2004:2023
+
+# retrieve shot data for Houston Rockets for all seasons from 2004 to 2023
+rockets_shots_df <- map_dfr(seasons, ~teams_shots(teams = "Houston Rockets", seasons = .x))
+
+# save the combined shot data to a CSV file
+write.csv(rockets_shots_df, file = "rockets_shots_df.csv", row.names = FALSE)
+```
+
+```{r Read back shot data set and tidy, include=FALSE}
+rockets_shots_df <- read_csv("rockets_shots_df.csv")
+
+rockets_shots_tidy <- rockets_shots_df %>%
+  dplyr::select(yearSeason, locationX, locationY, isShotMade, idGame)
+```
+
+```{r Data visualization, include=FALSE}
+# specify the file path
+jpg_file <- "nba_court.jpg"
+png_file <- "rockets_logo.png"
+
+# read in the JPEG/PNG image
+court <- rasterGrob(readJPEG(jpg_file), width=unit(1,"npc"), height=unit(1,"npc"))
+logo <- readPNG(png_file)
+
+# create an empty list to store the shot charts/heat maps for each season
+shot_chart_list <- list()
+heat_map_list <- list()
+
+# let's look at seasons at the beginning, middle, and end of the sequence
+seasons_of_interest <- c(2004, 2013, 2023)
+
+# iterate through each season
+for (season in seasons_of_interest) {
+  
+  # filter to see shots from given season
+  rockets_shots_season <- rockets_shots_tidy %>%
+    filter(yearSeason == season)
+  
+  # create a chart mapping all the shots of the given season
+  shot_chart <- ggplot(rockets_shots_season, aes(locationX, locationY)) +
+    geom_rect(xmin = -270, xmax = 270, ymin = -70, ymax = 440, fill = "#CE1141", color = "#C4CED4", size = 1.5) + # add border
+    annotation_custom(court, xmin = -250, xmax = 250, ymin = -50, ymax = 420) + # add court
+    annotation_raster(logo, xmin = 125, xmax = 225, ymin = 275, ymax = 400) + # add logo
+    geom_point(aes(col = isShotMade, shape = isShotMade), alpha = 0.4, size = 1.5) +
+    xlim(-250, 250) + # set x and y boundaries corresponding to the size of a NBA half-court
+    ylim(-50, 420) + 
+    ggtitle(paste("Houston Rockets Shot Chart (", season - 1, "-", season, ")", sep = "")) +
+    labs(x = NULL, y = NULL) +
+    scale_color_manual(name = "Shot Outcome", 
+                       breaks = c("TRUE", "FALSE"),
+                       labels = c("Make", "Miss"),
+                       values = c("#00AA66", "tomato")) + # made shots will be green, missed will be red
+    scale_shape_manual(name = "Shot Outcome", 
+                       breaks = c("TRUE", "FALSE"),
+                       labels = c("Make", "Miss"),
+                       values = c(1, 4)) + # made shots will be open circles, missed will be x's
+    theme_minimal() +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(), # remove axis marks
+          plot.title = element_text(hjust = 0.5, vjust = -.7, size = 15, family = "Palatino"),
+          legend.title = element_text(size = 13, family = "Palatino"),
+          legend.text = element_text(size = 10, family = "Palatino")) +
+    coord_fixed() # necessary so the court proportions are correct
+    
+  # store shot chart in the list
+  shot_chart_list[[as.character(season)]] <- shot_chart
+  
+  # create a heat map of all the shots of the given season
+  heat_map <- ggplot(rockets_shots_season, aes(locationX, locationY)) +
+    geom_rect(xmin = -270, xmax = 270, ymin = -70, ymax = 440, fill = "#CE1141", color = "#C4CED4", size = 1.5) +
+    annotation_custom(court, xmin = -250, xmax = 250, ymin = -50, ymax = 420) +
+    annotation_raster(logo, xmin = 125, xmax = 225, ymin = 275, ymax = 400) +
+    # instead of geom_point, use hexagons to create a heat map
+    stat_binhex(bins = 15, colour = "gray", alpha = 0.7) + 
+    # transition from yellow to orange to red, and apply log transformation to make it easier to see differences
+    scale_fill_gradientn(colours = c("yellow", "orange", "red"), trans = "log", name = "Shot Frequency",
+                         labels = scales::label_number(accuracy = 1)) +  # round to nearest whole number 
+    xlim(-250, 250) +
+    ylim(-50, 420) + 
+    ggtitle(paste("Houston Rockets Heat Map (", season - 1, "-", season, ")", sep = "")) +
+    labs(x = NULL, y = NULL) +
+    theme_minimal() +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(),
+          plot.title = element_text(hjust = 0.5, vjust = -.7, size = 15, family = "Palatino"),
+          legend.title = element_text(size = 13, family = "Palatino"),
+          legend.text = element_text(size = 10, family = "Palatino")) +
+    coord_fixed()
+    
+  # store heat map in the list
+  heat_map_list[[as.character(season)]] <- heat_map
+}
+```
+
+## Team Shots Visualization
+
+```{r, fig.width=11, fig.height=6}
+# print the shot chart and heat map side by side
+grid.arrange(shot_chart_list[[1]], heat_map_list[[1]], ncol=2)
+```
+
+## Team Shots Visualization
+
+```{r, fig.width=11, fig.height=6}
+# print the shot chart and heat map side by side
+grid.arrange(shot_chart_list[[2]], heat_map_list[[2]], ncol=2)
+```
+
+## Team Shots Visualization
+
+```{r, fig.width=11, fig.height=6}
+# print the shot chart and heat map side by side
+grid.arrange(shot_chart_list[[3]], heat_map_list[[3]], ncol=2)
+```
+
+## Shot Chart/Heat Map Findings
+- **<font size="5">2003-04 Season</font>**: 
+  - <font size="4">Mid-range shots are prevalent</font>
+  - <font size="4">Shots in the paint are distributed fairly even</font>
+  - <font size="4">Three-pointers are less common and shot closer to the arc</font>
+- **<font size="5">2012-13 Season</font>**: 
+  - <font size="4">Fewer mid-range shots taken</font>
+  - <font size="4">Shots in and around the paint move closer to the rim</font> 
+  - <font size="4">Increased reliance on three-pointers</font>
+- **<font size="5">2022-23 Season</font>**: 
+  - <font size="4">Mid-range shots are sparsely taken</font>
+  - <font size="4">Increased shots in the paint AND near the rim</font> 
+  - <font size="4">Three-pointers are very common and shot further from the arc</font>
+
+## Further Reading
+
+I employed two distinct visualization techniques to display the Houston Rockets' shot selection trends across different seasons. On the left, we have a shot chart for an entire season illustrating made shots (green circles) and missed shots (red X's). Meanwhile, the right side showcases a heat map, with hexagons indicating shot frequency in a section of the court – lighter shades for fewer attempts and darker shades for more.
+
+## Further Reading Cont.
+
+In the 2003-04 season, the Rockets leaned heavily on mid-range jump shots, with a considerable portion of their attempts occuring in this zone. Despite this reliance, their approach to scoring remained balanced, evident from the even color distribution of the heat map in the paint and beyond the arc. Three-pointers were attempted less back then, and when they did occur, they tended to be closer to the three-point arc, as the shot chart shows. This makes sense- players were likely less proficient three-point shooters in this era, so taking deep three-pointers would be inefficient.  
+
+## Further Reading Cont.
+
+A noticeable shift occurred in shot selection during the 2012-13 season. The frequency of mid-range shots dwindled significantly, replaced by an uptick in three-point attempts and shots around the rim. This transformation reflects the evolving emphasis on high-percentage scoring opportunities in the NBA, influenced by the success of players like Stephen Curry, and the increased use of data analytics to determine the most efficient shot types. This season set the stage for a league characterized by hyper-optimized offenses. 
+
+## Further Reading Cont.
+
+Fast forward to the 2022-23 season, and we observe the prevailing offensive strategy of the modern NBA. The Rockets largely abandoned mid-range shots, opting instead for three-pointers and shots near the rim and in the paint. This indicates a team that has gone all-in on maximum-efficiency shots. Notably, three-point attempts extended further from the arc, suggesting an evolution in player proficiency in deep-range shooting to the point where these shots are worth taking. The darkness of the paint and three-point line in the heat map reinforces these observations, highlighting the concentrated offensive focus on these areas.
+
+
+## Exploring Clutch Time Shot Selection
+
+The NBA defines clutch time as "the final five minutes of the fourth quarter or overtime when the score is within five points". I will be exploring if the shot selection in clutch time has changed in the past two decades for the Houston Rockets.
+
+```{r Get Game IDs, eval=FALSE, include=FALSE}
+# create an empty list to store unique game IDs
+rockets_game_ids <- list()
+
+# iterate over each season from 2004 to 2023
+for (season in seasons_of_interest) {
+    # get game IDs for Houston Rockets games in the current season
+    rocket_games <- teams_shots(teams = "Houston Rockets", seasons = season)$idGame
+    # iterate through each game ID
+    for (game_id in rocket_games) {
+      # check if the game ID is not already in the list
+      if (!(game_id %in% rockets_game_ids)) {
+        # if not, add it to the list
+        rockets_game_ids <- c(rockets_game_ids, game_id)
+      }
+    }
+}
+```
+
+```{r Find all clutch shots for 2004, 2013, and 2024 seasons, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# create an empty list to store the results
+clutch_shots_list <- list()
+
+# iterate over each game ID
+for (current_game_id in rockets_game_ids) { 
+    # tracking clutch time shots
+    clutch_shots <- play_by_play_v2(game_ids = current_game_id) %>%
+      mutate(marginScore = na.locf(marginScore, na.rm = FALSE)) %>% # this replaces all NA values with the current marginScore
+      filter(
+        # use text recognition to determine whether or not a play is an attempted shot (do not include free throws)
+        # look at both the home and visitor columns to handle cases where the Rockets are the home or away team
+        !(grepl("MISS.*Free Throw", descriptionPlayHome)) & 
+        !(grepl("Free Throw", descriptionPlayHome)) & 
+        !(grepl("MISS.*Free Throw", descriptionPlayVisitor)) &
+        !(grepl("Free Throw", descriptionPlayVisitor)) &
+        ((grepl("PTS)", descriptionPlayHome) | grepl("MISS", descriptionPlayHome)) | 
+        (grepl("PTS)", descriptionPlayVisitor) | grepl("MISS", descriptionPlayVisitor))) &
+        teamNamePlayer1 == "Rockets" &
+        # use definition of clutch time to filter for shots that occur within these constraints
+        abs(marginScore) <= 5 &
+        numberPeriod >= 4 &
+        timeRemaining <= 5
+      ) %>%
+      dplyr::select(namePlayer1, teamNamePlayer1, descriptionPlayHome, descriptionPlayVisitor, timeRemaining, marginScore, idGame)
+    
+    # add the result to the list
+    clutch_shots_list[[current_game_id]] <- clutch_shots
+}
+  
+# combine all results into a single data frame
+clutch_shots_df <- bind_rows(clutch_shots_list, .id = "game_id")
+
+# save the clutch shots data frame to a CSV file
+write.csv(clutch_shots_df, file = "clutch_shots_data.csv", row.names = FALSE)
+```
+
+```{r Read back into R, include=FALSE}
+clutch_shots_df <- read_csv("clutch_shots_data.csv")
+```
+
+```{r Match clutch shots to rockets_shots, warning=FALSE, include=FALSE}
+clutch_shots_df2 <- clutch_shots_df %>%
+  mutate(timeID = paste0(timeRemaining + idGame)) %>% # create new column, timeID, which creates a unique identifier for each shot
+  select(namePlayer1, timeRemaining, idGame, timeID) %>%
+  filter(row_number() != 685 & row_number() != 705) # remove edge cases where the timeID is the exact same (helps to join data)
+
+rockets_shots_df2 <- rockets_shots_df %>%
+  filter(
+         numberPeriod >= 4 & 
+         minutesRemaining <= 4 &
+         row_number() != 14119 & row_number() != 14172 # remove edge cases where the timeID is the exact same (helps to join data)
+        ) %>% 
+  # create a timeRemaining column, which allows us to then create a timeID columnn
+  mutate(timeRemaining = minutesRemaining + (secondsRemaining / 60), 
+         timeID = paste0(timeRemaining + idGame)) %>%
+  select(namePlayer, timeRemaining, idGame, timeID, yearSeason, locationX, locationY, isShotMade)
+
+# join the two data frames by the unique timeID identifier
+clutch_shots_joined <- inner_join(clutch_shots_df2, rockets_shots_df2, by = "timeID") %>%
+  select(yearSeason, namePlayer1, idGame.x, locationX, locationY, isShotMade)
+
+```
+
+```{r Create clutch time plots for each season, include=FALSE}
+# specify the file path
+jpg_file <- "nba_court.jpg"
+png_file <- "rockets_logo.png"
+
+# read in the JPEG/PNG image
+court <- rasterGrob(readJPEG(jpg_file), width=unit(1,"npc"), height=unit(1,"npc"))
+logo <- readPNG(png_file)
+
+# create an empty list to store the clutch time shot charts for each season
+clutch_shot_chart_list <- list()
+
+# loop through each season in the sequence
+for (season in seasons_of_interest) {
+  
+  # filter to see clutch time shots from given season
+  clutch_shots_season <- clutch_shots_joined %>%
+    filter(yearSeason == season)
+  
+  # create a chart mapping all the clutch time shots of the given season
+  clutch_shot_chart <- ggplot(clutch_shots_season, aes(locationX, locationY)) +
+    geom_rect(xmin = -270, xmax = 270, ymin = -70, ymax = 440, fill = "#CE1141", color = "#C4CED4", size = 1.5) +
+    annotation_custom(court, xmin = -250, xmax = 250, ymin = -50, ymax = 420) +
+    annotation_raster(logo, xmin = 125, xmax = 225, ymin = 275, ymax = 400) +
+    geom_point(aes(col = isShotMade, shape = isShotMade), alpha = 0.75, size = 1.5) +
+    xlim(-250, 250) +
+    ylim(-50, 420) + 
+    ggtitle(paste("Houston Rockets Clutch Time Shot Chart (", season - 1, "-", season, ")", sep = "")) +
+    labs(x = NULL, y = NULL) +
+    scale_color_manual(name = "Shot Outcome", 
+                       breaks = c("TRUE", "FALSE"),
+                       labels = c("Make", "Miss"),
+                       values = c("#4CAF50", "#FF2733")) +
+    scale_shape_manual(name = "Shot Outcome", 
+                       breaks = c("TRUE", "FALSE"),
+                       labels = c("Make", "Miss"),
+                       values = c(1, 4)) + 
+    theme_minimal() +
+    theme(axis.text = element_blank(), axis.ticks = element_blank(),
+          plot.title = element_text(hjust = 0.5, vjust = -.7, size = 13, family = "Palatino"),
+          legend.title = element_text(size = 13, family = "Palatino"),
+          legend.text = element_text(size = 10, family = "Palatino")) +
+    coord_fixed()
+    
+    # store clutch time shot chart in the list
+    clutch_shot_chart_list[[as.character(season)]] <- clutch_shot_chart
+}
+```
+
+## Clutch Time Shot Visualization
+```{r echo=FALSE}
+# print a clutch time shot chart of the 2004 season
+print(clutch_shot_chart_list[[1]])
+```
+
+## Clutch Time Shot Visualization
+```{r echo=FALSE}
+# print a clutch time shot chart of the 2004 season
+print(clutch_shot_chart_list[[2]])
+```
+
+## Clutch Time Shot Visualization
+```{r echo=FALSE}
+# print a clutch time shot chart of the 2004 season
+print(clutch_shot_chart_list[[3]])
+```
+
+## Clutch Time Shot Chart Analysis
+
+- 2003-04 season: clutch-time shots were evenly distributed among three-pointers, mid-range attempts, and shots taken in the paint.
+- 2012-13 season: there was a noticeable shift towards a higher frequency of clutch-time shots taken in proximity to the paint and beyond the three-point line.
+- 2022-23 season: mid-range clutch-time shots are virtually non-existent
+- In clutch time, the Rockets exhibit a strategic preference for either three-pointers or high-percentage shots near the basket.
